@@ -4,7 +4,7 @@ import axios from "axios";
 import { FiUpload } from "react-icons/fi";
 
 interface Participant {
-  id: string;
+  userId: string;
   name: string;
   upiId: string;
   joinedAt: string;
@@ -23,10 +23,10 @@ interface RoomData {
 }
 
 interface ReceiptItem {
-  item_name: string;
+  name: string;
   quantity: number;
-  price: number;
-  total: number;
+  rate: number;
+  value: number;
   tags?: string[];
 }
 
@@ -61,26 +61,64 @@ const RoomDetails: React.FC = () => {
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [userShares, setUserShares] = useState<{ [key: string]: number }>({});
 
-  useEffect(() => {
-    const fetchRoomDetails = async () => {
-      try {
-        const response = await axios.get(
-          `http://localhost:3001/api/rooms/${roomId}`
-        );
-        setRoom(response.data.room);
-      } catch (err: any) {
-        setError(
-          err?.response?.data?.message || "Failed to fetch room details"
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
+  const calculateShares = useCallback(
+    (items: ReceiptItem[]) => {
+      if (!room) return;
 
+      const shares: { [key: string]: number } = {};
+
+      room.participants.forEach((participant) => {
+        shares[participant.userId] = 0;
+      });
+
+      items.forEach((item) => {
+        const taggedUsers = item.tags || [];
+        if (taggedUsers.length > 0) {
+          const sharePerPerson = item.value / taggedUsers.length;
+          taggedUsers.forEach((userId) => {
+            shares[userId] = (shares[userId] || 0) + sharePerPerson;
+          });
+        }
+      });
+
+      const sharedCosts =
+        (receiptData?.serviceCharge || 0) +
+        (receiptData?.cgst || 0) +
+        (receiptData?.sgst || 0);
+      const sharedCostPerPerson = sharedCosts / room.participants.length;
+
+      room.participants.forEach((participant) => {
+        shares[participant.userId] += sharedCostPerPerson;
+      });
+
+      setUserShares(shares);
+    },
+    [room, receiptData]
+  );
+
+  const fetchRoomDetails = useCallback(async () => {
+    try {
+      const response = await axios.get(
+        `http://localhost:3001/api/rooms/${roomId}`
+      );
+      setRoom(response.data.room);
+
+      if (response.data.room.receipt) {
+        setReceiptData(response.data.room.receipt);
+        calculateShares(response.data.room.receipt.items);
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Failed to fetch room details");
+    } finally {
+      setLoading(false);
+    }
+  }, [roomId, calculateShares]);
+
+  useEffect(() => {
     if (roomId) {
       fetchRoomDetails();
     }
-  }, [roomId]);
+  }, [roomId, fetchRoomDetails]);
 
   const handleShare = async () => {
     const shareUrl = `${window.location.origin}/rooms/join/${roomId}`;
@@ -135,11 +173,8 @@ const RoomDetails: React.FC = () => {
           },
         }
       );
-
       setReceiptData(response.data);
-      console.log(response.data);
-
-      setShowSnackbar(true);
+      await fetchRoomDetails();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Failed to upload receipt");
     } finally {
@@ -147,56 +182,33 @@ const RoomDetails: React.FC = () => {
     }
   };
 
-  const calculateShares = useCallback(() => {
-    if (!receiptData || !room) return;
-
-    const shares: { [key: string]: number } = {};
-
-    room.participants.forEach((participant) => {
-      shares[participant.id] = 0;
-    });
-
-    receiptData.items.forEach((item, index) => {
-      const taggedUsers = item.tags || [];
-      if (taggedUsers.length > 0) {
-        const sharePerPerson = item.total / taggedUsers.length;
-        taggedUsers.forEach((userId) => {
-          shares[userId] = (shares[userId] || 0) + sharePerPerson;
-        });
-      }
-    });
-
-    const sharedCosts =
-      (receiptData.serviceCharge || 0) +
-      (receiptData.cgst || 0) +
-      (receiptData.sgst || 0);
-    const sharedCostPerPerson = sharedCosts / room.participants.length;
-
-    room.participants.forEach((participant) => {
-      shares[participant.id] += sharedCostPerPerson;
-    });
-
-    setUserShares(shares);
-  }, [receiptData, room]);
-
   const handleTagToggle = async (itemIndex: number) => {
     if (!room || !receiptData) return;
 
-    const currentUser = room.participants.find((p) => p.id === room.creator.id);
-    if (!currentUser) return;
+    const currentUser = room.participants[room.participants.length - 1];
+    if (!currentUser) {
+      console.error("No current user found");
+      return;
+    }
+
+    console.log("Current User:", currentUser);
 
     const item = receiptData.items[itemIndex];
-    const isTagged = item.tags?.includes(currentUser.id);
+    const isTagged = item.tags?.includes(currentUser.userId);
     const action = isTagged ? "remove" : "add";
+
+    console.log("Attempting to", action, "tag for item", itemIndex);
 
     try {
       const response = await axios.post(
         `http://localhost:3001/api/rooms/${roomId}/items/${itemIndex}/tags`,
         {
-          userId: currentUser.id,
+          userId: currentUser.userId,
           action,
         }
       );
+
+      console.log("Tag response:", response.data);
 
       if (response.data.success) {
         setReceiptData((prev) => {
@@ -208,6 +220,8 @@ const RoomDetails: React.FC = () => {
           };
           return { ...prev, items: newItems };
         });
+
+        calculateShares(response.data.items);
       }
     } catch (error) {
       console.error("Failed to update tags:", error);
@@ -261,7 +275,7 @@ const RoomDetails: React.FC = () => {
               <div className="space-y-4">
                 {room.participants.map((participant) => (
                   <div
-                    key={participant.id}
+                    key={participant.userId}
                     className="border rounded-lg p-4 bg-gray-50"
                   >
                     <p className="font-medium text-gray-900">
@@ -337,7 +351,7 @@ const RoomDetails: React.FC = () => {
                           className="flex justify-between items-center p-4 bg-gray-50 rounded-lg"
                         >
                           <div className="flex-1">
-                            <p className="font-medium">{item.item_name}</p>
+                            <p className="font-medium">{item.name}</p>
                             <p className="text-sm text-gray-500">
                               Quantity: {item.quantity ?? 1}
                             </p>
@@ -345,12 +359,20 @@ const RoomDetails: React.FC = () => {
                               <button
                                 onClick={() => handleTagToggle(index)}
                                 className={`px-3 py-1 text-sm rounded-full ${
-                                  item.tags?.includes(room.creator.id)
+                                  item.tags?.includes(
+                                    room.participants[
+                                      room.participants.length - 1
+                                    ].userId
+                                  )
                                     ? "bg-indigo-100 text-indigo-700"
                                     : "bg-gray-100 text-gray-700"
                                 }`}
                               >
-                                {item.tags?.includes(room.creator.id)
+                                {item.tags?.includes(
+                                  room.participants[
+                                    room.participants.length - 1
+                                  ].userId
+                                )
                                   ? "Tagged"
                                   : "Tag Me"}
                               </button>
@@ -358,10 +380,10 @@ const RoomDetails: React.FC = () => {
                           </div>
                           <div className="text-right">
                             <p className="font-medium">
-                              ₹{(item.price ?? 0).toFixed(2)}
+                              ₹{(item.rate ?? 0).toFixed(2)}
                             </p>
                             <p className="text-sm text-gray-500">
-                              @₹{(item.price ?? 0).toFixed(2)} each
+                              @₹{(item.rate ?? 0).toFixed(2)} each
                             </p>
                             <p className="text-xs text-gray-500 mt-1">
                               Split between: {item.tags?.length || 0} people
@@ -379,15 +401,17 @@ const RoomDetails: React.FC = () => {
                     <div className="space-y-2">
                       {room.participants.map((participant) => (
                         <div
-                          key={participant.id}
+                          key={participant.userId}
                           className="flex justify-between items-center"
                         >
                           <span className="text-gray-700">
                             {participant.name}{" "}
-                            {participant.id === room.creator.id ? "(You)" : ""}
+                            {participant.userId === room.creator.id
+                              ? "(You)"
+                              : ""}
                           </span>
                           <span className="font-medium">
-                            ₹{(userShares[participant.id] || 0).toFixed(2)}
+                            ₹{(userShares[participant.userId] || 0).toFixed(2)}
                           </span>
                         </div>
                       ))}
