@@ -11,6 +11,7 @@ interface RoomDetails {
   id: string;
   name: string;
   creator: {
+    id: string;
     name: string;
     upiId: string;
   };
@@ -31,23 +32,51 @@ const JoinRoom: React.FC = () => {
 
   useEffect(() => {
     const fetchRoomDetails = async () => {
+      if (!roomId) {
+        setError("Invalid room ID");
+        setLoading(false);
+        return;
+      }
+
       try {
         const response = await axios.get(
-          `http://localhost:3001/api/rooms/${roomId}`
+          `http://localhost:3001/api/rooms/${roomId}`,
+          {
+            timeout: 5000,
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          }
         );
-        setRoom(response.data.room);
+
+        if (response.data && response.data.room) {
+          console.log("Room data received:", response.data.room);
+          setRoom(response.data.room);
+          setError("");
+        } else {
+          throw new Error("Invalid response format");
+        }
       } catch (err: any) {
-        setError(
-          err?.response?.data?.message || "Failed to fetch room details"
-        );
+        console.error("Error fetching room:", err);
+        if (err.code === "ERR_NETWORK") {
+          setError(
+            "Unable to connect to server. Please check your internet connection."
+          );
+        } else if (err.response?.status === 404) {
+          setError("Room not found");
+        } else {
+          setError(
+            err?.response?.data?.message || 
+            err.message || 
+            "Failed to fetch room details"
+          );
+        }
       } finally {
         setLoading(false);
       }
     };
 
-    if (roomId) {
-      fetchRoomDetails();
-    }
+    fetchRoomDetails();
   }, [roomId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -62,19 +91,42 @@ const JoinRoom: React.FC = () => {
     setError("");
     setJoining(true);
 
+    if (!roomId) {
+      setError("Invalid room ID");
+      setJoining(false);
+      return;
+    }
+
     try {
+      console.log("Submitting join request:", { roomId, formData });
       const response = await axios.post(
         `http://localhost:3001/api/rooms/join/${roomId}`,
-        formData
+        formData,
+        {
+          timeout: 5000,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
       );
 
-      // Show success message (optional)
-      console.log("Successfully joined room:", response.data);
-
-      // Navigate to room details page
-      navigate(`/rooms/${roomId}/details`);
+      if (response.data && response.data.room) {
+        console.log("Join successful:", response.data);
+        navigate(`/rooms/${roomId}/details`);
+      } else {
+        throw new Error("Invalid response from server");
+      }
     } catch (err: any) {
-      setError(err?.response?.data?.message || "Failed to join room");
+      console.error("Error joining room:", err);
+      if (err.code === "ERR_NETWORK") {
+        setError(
+          "Unable to connect to server. Please check your internet connection."
+        );
+      } else if (err.response?.status === 404) {
+        setError("Room not found");
+      } else {
+        setError(err?.response?.data?.message || "Failed to join room");
+      }
     } finally {
       setJoining(false);
     }
@@ -88,10 +140,36 @@ const JoinRoom: React.FC = () => {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="max-w-md w-full space-y-8 p-6 bg-white rounded-lg shadow-md">
+          <div className="text-center">
+            <div className="text-red-600 mb-4 font-medium">{error}</div>
+            <button
+              onClick={() => navigate("/")}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Return to Home
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!room) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-red-600">Room not found</div>
+        <div className="text-center">
+          <div className="text-red-600 mb-4">Room not found</div>
+          <button
+            onClick={() => navigate("/")}
+            className="text-indigo-600 hover:text-indigo-800"
+          >
+            Return to Home
+          </button>
+        </div>
       </div>
     );
   }
@@ -99,7 +177,15 @@ const JoinRoom: React.FC = () => {
   if (!room.isActive) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-red-600">This room is no longer active</div>
+        <div className="text-center">
+          <div className="text-red-600 mb-4">This room is no longer active</div>
+          <button
+            onClick={() => navigate("/")}
+            className="text-indigo-600 hover:text-indigo-800"
+          >
+            Return to Home
+          </button>
+        </div>
       </div>
     );
   }

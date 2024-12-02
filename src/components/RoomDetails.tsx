@@ -23,31 +23,32 @@ interface RoomData {
 }
 
 interface ReceiptItem {
-  name: string;
+  item: string;
   quantity: number;
-  rate: number;
-  value: number;
-  tags?: string[];
+  price: number;
+  tags: string[];
 }
 
-interface ReceiptData {
+interface Receipt {
   items: ReceiptItem[];
-  total?: number;
-  cgst?: number;
-  sgst?: number;
-  serviceCharge?: number;
-  netAmount?: number;
-  bill_details?: {
-    restaurant_name?: string;
-    bill_number?: string;
-    date?: string;
-    time?: string;
-  };
+  total: number;
+  cgst: number;
+  sgst: number;
+  serviceCharge: number;
+  netAmount: number;
 }
 
 interface ItemTag {
   userId: string;
   userName: string;
+}
+
+interface PaymentRequest {
+  amount: number;
+  from: string;
+  to: string;
+  roomId: string;
+  items: string[];
 }
 
 const RoomDetails: React.FC = () => {
@@ -58,43 +59,28 @@ const RoomDetails: React.FC = () => {
   const [copySuccess, setCopySuccess] = useState(false);
   const [showSnackbar, setShowSnackbar] = useState(false);
   const [uploadLoading, setUploadLoading] = useState(false);
-  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [receiptData, setReceiptData] = useState<Receipt | null>(null);
   const [userShares, setUserShares] = useState<{ [key: string]: number }>({});
+  const [currentUser, setCurrentUser] = useState<Participant | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedParticipant, setSelectedParticipant] =
+    useState<Participant | null>(null);
 
-  const calculateShares = useCallback(
-    (items: ReceiptItem[]) => {
-      if (!room) return;
+  const calculateShares = useCallback((items: ReceiptItem[]) => {
+    const shares: { [key: string]: number } = {};
 
-      const shares: { [key: string]: number } = {};
+    items.forEach((item, index) => {
+      const taggedUsers = item.tags || [];
+      if (taggedUsers.length > 0) {
+        const shareAmount = item.price / taggedUsers.length;
+        taggedUsers.forEach((userId) => {
+          shares[userId] = (shares[userId] || 0) + shareAmount;
+        });
+      }
+    });
 
-      room.participants.forEach((participant) => {
-        shares[participant.userId] = 0;
-      });
-
-      items.forEach((item) => {
-        const taggedUsers = item.tags || [];
-        if (taggedUsers.length > 0) {
-          const sharePerPerson = item.value / taggedUsers.length;
-          taggedUsers.forEach((userId) => {
-            shares[userId] = (shares[userId] || 0) + sharePerPerson;
-          });
-        }
-      });
-
-      const sharedCosts =
-        (receiptData?.serviceCharge || 0) +
-        (receiptData?.cgst || 0) +
-        (receiptData?.sgst || 0);
-      const sharedCostPerPerson = sharedCosts / room.participants.length;
-
-      room.participants.forEach((participant) => {
-        shares[participant.userId] += sharedCostPerPerson;
-      });
-
-      setUserShares(shares);
-    },
-    [room, receiptData]
-  );
+    setUserShares(shares);
+  }, []);
 
   const fetchRoomDetails = useCallback(async () => {
     try {
@@ -119,6 +105,13 @@ const RoomDetails: React.FC = () => {
       fetchRoomDetails();
     }
   }, [roomId, fetchRoomDetails]);
+
+  useEffect(() => {
+    if (room) {
+      const lastParticipant = room.participants[room.participants.length - 1];
+      setCurrentUser(lastParticipant);
+    }
+  }, [room]);
 
   const handleShare = async () => {
     const shareUrl = `${window.location.origin}/rooms/join/${roomId}`;
@@ -228,6 +221,43 @@ const RoomDetails: React.FC = () => {
     }
   };
 
+  const hasAnyTags = useCallback(() => {
+    if (!receiptData?.items) return false;
+    return receiptData.items.some((item) => item.tags && item.tags.length > 0);
+  }, [receiptData]);
+
+  const handleRequestPayment = async (participantId: string) => {
+    if (!room || !receiptData) return;
+
+    const participant = room.participants.find(
+      (p) => p.userId === participantId
+    );
+    if (!participant) return;
+
+    const amount = userShares[participantId] || 0;
+    if (amount <= 0) return;
+
+    try {
+      const taggedItems = receiptData.items
+        .filter((item) => item.tags?.includes(participantId))
+        .map((item) => item.item);
+
+      const upiLink = `upi://pay?pa=${
+        participant.upiId
+      }&pn=${encodeURIComponent(participant.name)}&am=${amount.toFixed(
+        2
+      )}&cu=INR`;
+
+      window.open(upiLink, "_blank");
+      console.log("Payment request sent to:", upiLink);
+      setShowSnackbar(true);
+      setTimeout(() => setShowSnackbar(false), 3000);
+    } catch (error) {
+      console.error("Failed to request payment:", error);
+      setError("Failed to send payment request");
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -278,12 +308,34 @@ const RoomDetails: React.FC = () => {
                     key={participant.userId}
                     className="border rounded-lg p-4 bg-gray-50"
                   >
-                    <p className="font-medium text-gray-900">
-                      {participant.name}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Joined: {new Date(participant.joinedAt).toLocaleString()}
-                    </p>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {participant.name}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          Joined:{" "}
+                          {new Date(participant.joinedAt).toLocaleString()}
+                        </p>
+                        {userShares[participant.userId] > 0 && (
+                          <p className="text-sm font-medium text-indigo-600 mt-1">
+                            Share: ₹{userShares[participant.userId].toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                      {userShares[participant.userId] > 0 &&
+                        participant.userId !== room.creator.id &&
+                        currentUser?.userId === participant.userId && (
+                          <button
+                            onClick={() =>
+                              handleRequestPayment(participant.userId)
+                            }
+                            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                          >
+                            Request Payment
+                          </button>
+                        )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -315,107 +367,62 @@ const RoomDetails: React.FC = () => {
             </div>
 
             {receiptData && (
-              <div className="mt-6">
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-700">
-                    Receipt Details
-                  </h3>
-                  {receiptData.bill_details && (
-                    <div className="mt-2 text-sm text-gray-600">
-                      {receiptData.bill_details.restaurant_name && (
-                        <p className="font-medium">
-                          {receiptData.bill_details.restaurant_name}
-                        </p>
-                      )}
-                      <div className="flex gap-4 mt-1">
-                        {receiptData.bill_details.bill_number && (
-                          <p>Bill #{receiptData.bill_details.bill_number}</p>
-                        )}
-                        {receiptData.bill_details.date && (
-                          <p>{receiptData.bill_details.date}</p>
-                        )}
-                        {receiptData.bill_details.time && (
-                          <p>{receiptData.bill_details.time}</p>
-                        )}
+              <div className="mt-4">
+                <h3 className="text-lg font-medium">Receipt Items</h3>
+                <div className="mt-2 space-y-2">
+                  {receiptData.items.map((item, index) => (
+                    <div
+                      key={index}
+                      className="flex justify-between items-center p-2 bg-gray-50 rounded"
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{item.item}</div>
+                        <div className="text-sm text-gray-600">
+                          Quantity: {item.quantity} × ₹{item.price}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className="text-right">
+                          <div>₹{item.price}</div>
+                          <button
+                            onClick={() => handleTagToggle(index)}
+                            className={`text-sm px-3 py-1 rounded ${
+                              currentUser &&
+                              item.tags.includes(currentUser.userId)
+                                ? "bg-indigo-100 text-indigo-700"
+                                : "bg-gray-100 text-gray-700"
+                            }`}
+                          >
+                            {currentUser &&
+                            item.tags.includes(currentUser.userId)
+                              ? "Tagged"
+                              : "Tag Me"}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-
-                <div className="flex gap-4">
-                  <div className="flex-1">
-                    <div className="space-y-4">
-                      {receiptData.items.map((item, index) => (
-                        <div
-                          key={index}
-                          className="flex justify-between items-center p-4 bg-gray-50 rounded-lg"
-                        >
-                          <div className="flex-1">
-                            <p className="font-medium">{item.name}</p>
-                            <p className="text-sm text-gray-500">
-                              Quantity: {item.quantity ?? 1}
-                            </p>
-                            <div className="mt-2">
-                              <button
-                                onClick={() => handleTagToggle(index)}
-                                className={`px-3 py-1 text-sm rounded-full ${
-                                  item.tags?.includes(
-                                    room.participants[
-                                      room.participants.length - 1
-                                    ].userId
-                                  )
-                                    ? "bg-indigo-100 text-indigo-700"
-                                    : "bg-gray-100 text-gray-700"
-                                }`}
-                              >
-                                {item.tags?.includes(
-                                  room.participants[
-                                    room.participants.length - 1
-                                  ].userId
-                                )
-                                  ? "Tagged"
-                                  : "Tag Me"}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-medium">
-                              ₹{(item.rate ?? 0).toFixed(2)}
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              @₹{(item.rate ?? 0).toFixed(2)} each
-                            </p>
-                            <p className="text-xs text-gray-500 mt-1">
-                              Split between: {item.tags?.length || 0} people
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                <div className="mt-4 border-t pt-4">
+                  <div className="flex justify-between text-sm">
+                    <span>Subtotal:</span>
+                    <span>₹{receiptData.total}</span>
                   </div>
-
-                  <div className="w-80 bg-white p-4 rounded-lg shadow">
-                    <h3 className="text-lg font-semibold mb-4">
-                      Your Share Summary
-                    </h3>
-                    <div className="space-y-2">
-                      {room.participants.map((participant) => (
-                        <div
-                          key={participant.userId}
-                          className="flex justify-between items-center"
-                        >
-                          <span className="text-gray-700">
-                            {participant.name}{" "}
-                            {participant.userId === room.creator.id
-                              ? "(You)"
-                              : ""}
-                          </span>
-                          <span className="font-medium">
-                            ₹{(userShares[participant.userId] || 0).toFixed(2)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="flex justify-between text-sm">
+                    <span>CGST:</span>
+                    <span>₹{receiptData.cgst}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>SGST:</span>
+                    <span>₹{receiptData.sgst}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Service Charge:</span>
+                    <span>₹{receiptData.serviceCharge}</span>
+                  </div>
+                  <div className="flex justify-between font-medium mt-2">
+                    <span>Total Amount:</span>
+                    <span>₹{receiptData.netAmount}</span>
                   </div>
                 </div>
               </div>
@@ -423,6 +430,11 @@ const RoomDetails: React.FC = () => {
           </div>
         </div>
       </div>
+      {showSnackbar && (
+        <div className="fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-md shadow-lg">
+          Payment request sent successfully!
+        </div>
+      )}
     </>
   );
 };
