@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { FiUpload } from "react-icons/fi";
+import { API_BASE_URL } from '../config/constants';
 
 interface Participant {
   userId: string;
@@ -85,7 +86,7 @@ const RoomDetails: React.FC = () => {
   const fetchRoomDetails = useCallback(async () => {
     try {
       const response = await axios.get(
-        `http://localhost:3001/api/rooms/${roomId}`
+        `${API_BASE_URL}/api/rooms/${roomId}`
       );
       setRoom(response.data.room);
 
@@ -158,7 +159,7 @@ const RoomDetails: React.FC = () => {
 
     try {
       const response = await axios.post(
-        `http://localhost:3001/api/rooms/${roomId}/upload-receipt`,
+        `${API_BASE_URL}/api/rooms/${roomId}/upload-receipt`,
         formData,
         {
           headers: {
@@ -194,7 +195,7 @@ const RoomDetails: React.FC = () => {
 
     try {
       const response = await axios.post(
-        `http://localhost:3001/api/rooms/${roomId}/items/${itemIndex}/tags`,
+        `${API_BASE_URL}/api/rooms/${roomId}/items/${itemIndex}/tags`,
         {
           userId: currentUser.userId,
           action,
