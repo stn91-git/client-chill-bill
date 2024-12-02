@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE_URL } from "../config/constants";
 
 interface JoinFormData {
   name: string;
@@ -39,38 +40,13 @@ const JoinRoom: React.FC = () => {
       }
 
       try {
-        const response = await axios.get(
-          `http://localhost:3001/api/rooms/${roomId}`,
-          {
-            timeout: 5000,
-            headers: {
-              'Content-Type': 'application/json'
-            }
-          }
-        );
-
-        if (response.data && response.data.room) {
-          console.log("Room data received:", response.data.room);
-          setRoom(response.data.room);
-          setError("");
-        } else {
-          throw new Error("Invalid response format");
-        }
+        const response = await axios.get(`${API_BASE_URL}/api/rooms/${roomId}`);
+        setRoom(response.data.room);
+        setError("");
       } catch (err: any) {
-        console.error("Error fetching room:", err);
-        if (err.code === "ERR_NETWORK") {
-          setError(
-            "Unable to connect to server. Please check your internet connection."
-          );
-        } else if (err.response?.status === 404) {
-          setError("Room not found");
-        } else {
-          setError(
-            err?.response?.data?.message || 
-            err.message || 
-            "Failed to fetch room details"
-          );
-        }
+        setError(
+          err?.response?.data?.message || "Failed to fetch room details"
+        );
       } finally {
         setLoading(false);
       }
@@ -100,14 +76,8 @@ const JoinRoom: React.FC = () => {
     try {
       console.log("Submitting join request:", { roomId, formData });
       const response = await axios.post(
-        `http://localhost:3001/api/rooms/join/${roomId}`,
-        formData,
-        {
-          timeout: 5000,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
+        `${API_BASE_URL}/api/rooms/${roomId}/join`,
+        formData
       );
 
       if (response.data && response.data.room) {

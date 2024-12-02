@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_BASE_URL } from '../config/constants';
 
 interface FormData {
   roomName: string;
@@ -33,7 +34,7 @@ const CreateRoom: React.FC = () => {
 
     try {
       const response = await axios.post(
-        "http://localhost:3001/api/rooms/create",
+        `${API_BASE_URL}/api/rooms/create`,
         {
           roomName: formData.roomName,
           name: formData.name,

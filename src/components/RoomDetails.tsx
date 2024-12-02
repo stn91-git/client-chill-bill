@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { FiUpload } from "react-icons/fi";
-import { API_BASE_URL } from '../config/constants';
+import { API_BASE_URL } from "../config/constants";
 
 interface Participant {
   userId: string;
@@ -26,7 +26,7 @@ interface RoomData {
 interface ReceiptItem {
   item: string;
   quantity: number;
-  price: number;
+  rate: number;
   tags: string[];
 }
 
@@ -73,7 +73,7 @@ const RoomDetails: React.FC = () => {
     items.forEach((item, index) => {
       const taggedUsers = item.tags || [];
       if (taggedUsers.length > 0) {
-        const shareAmount = item.price / taggedUsers.length;
+        const shareAmount = item.rate / taggedUsers.length;
         taggedUsers.forEach((userId) => {
           shares[userId] = (shares[userId] || 0) + shareAmount;
         });
@@ -85,9 +85,7 @@ const RoomDetails: React.FC = () => {
 
   const fetchRoomDetails = useCallback(async () => {
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/api/rooms/${roomId}`
-      );
+      const response = await axios.get(`${API_BASE_URL}/api/rooms/${roomId}`);
       setRoom(response.data.room);
 
       if (response.data.room.receipt) {
@@ -379,12 +377,12 @@ const RoomDetails: React.FC = () => {
                       <div className="flex-1">
                         <div className="font-medium">{item.item}</div>
                         <div className="text-sm text-gray-600">
-                          Quantity: {item.quantity} × ₹{item.price}
+                          Quantity: {item.quantity} × ₹{item.rate}
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
                         <div className="text-right">
-                          <div>₹{item.price}</div>
+                          <div>₹{item.rate}</div>
                           <button
                             onClick={() => handleTagToggle(index)}
                             className={`text-sm px-3 py-1 rounded ${
